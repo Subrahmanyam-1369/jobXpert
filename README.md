@@ -1,0 +1,1 @@
+JobXpert is a monorepo with a FastAPI backend and a Vite powered React frontend. The backend exposes a health check on port 8000 while the frontend shows a circle that turns green when the check succeeds or red on failure. Tailwind CSS and Framer Motion provide a dark themed interface and Docker Compose runs both services on ports 8000 and 5173.
