@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import jwt
 from passlib.context import CryptContext
 from .db import Base, engine, get_db
-from .models import User
+from .models import User, Resume, Job, JobStatus
 
 Base.metadata.create_all(bind=engine)
 
@@ -58,7 +58,6 @@ def login(data: UserIn, db: Session = Depends(get_db)):
 
 from fastapi import UploadFile, File, Header
 from uuid import uuid4
-from .models import Resume
 
 class ResumeOut(BaseModel):
     id: int
@@ -104,3 +103,63 @@ async def upload_resume(file: UploadFile = File(...), user: User = Depends(get_c
 @app.get("/resumes", response_model=list[ResumeOut])
 def list_resumes(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(Resume).filter(Resume.user_id == user.id).all()
+
+class JobBase(BaseModel):
+    company: str | None = None
+    role: str | None = None
+    link: str | None = None
+    status: JobStatus | None = JobStatus.applied
+    applied_at: datetime | None = None
+    notes: str | None = None
+
+class JobCreate(JobBase):
+    company: str
+    role: str
+
+class JobUpdate(JobBase):
+    pass
+
+class JobRead(JobBase):
+    id: int
+    user_id: int
+    class Config:
+        orm_mode = True
+
+@app.post("/jobs", response_model=JobRead)
+def create_job(data: JobCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    job = Job(user_id=user.id, **data.dict(exclude_unset=True))
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    return job
+
+@app.get("/jobs", response_model=list[JobRead])
+def list_jobs(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(Job).filter(Job.user_id == user.id).all()
+
+@app.get("/jobs/{job_id}", response_model=JobRead)
+def get_job(job_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+@app.put("/jobs/{job_id}", response_model=JobRead)
+def update_job(job_id: int, data: JobUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    for k, v in data.dict(exclude_unset=True).items():
+        setattr(job, k, v)
+    db.commit()
+    db.refresh(job)
+    return job
+
+@app.delete("/jobs/{job_id}")
+def delete_job(job_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == user.id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    db.delete(job)
+    db.commit()
+    return {"ok": True}
