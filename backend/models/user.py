@@ -1,8 +1,7 @@
 from datetime import datetime
 from enum import Enum
 from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLEnum, Boolean
-from . import Base
-
+from ..db import Base
 class RoleEnum(Enum):
     user = "user"
     admin = "admin"
