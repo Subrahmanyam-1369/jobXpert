@@ -55,3 +55,52 @@ def login(data: UserIn, db: Session = Depends(get_db)):
     token = create_token(user.id)
     return {"access_token": token}
 
+
+from fastapi import UploadFile, File, Header
+from uuid import uuid4
+from .models import Resume
+
+class ResumeOut(BaseModel):
+    id: int
+    user_id: int
+    path: str
+    uploaded_at: datetime
+    class Config:
+        orm_mode = True
+
+def get_current_user(db: Session = Depends(get_db), authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = authorization.split()[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = db.query(User).get(int(payload.get("sub")))
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid user")
+    return user
+
+@app.post("/resumes/upload", response_model=ResumeOut)
+async def upload_resume(file: UploadFile = File(...), user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    ext = file.filename.rsplit('.', 1)[-1].lower()
+    if ext not in {"pdf", "txt"}:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large")
+    user_dir = os.path.join("backend", "uploads", str(user.id))
+    os.makedirs(user_dir, exist_ok=True)
+    name = f"{uuid4()}.{ext}"
+    path = os.path.join(user_dir, name)
+    with open(path, "wb") as f:
+        f.write(data)
+    resume = Resume(user_id=user.id, path=path, uploaded_at=datetime.utcnow())
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    return resume
+
+@app.get("/resumes", response_model=list[ResumeOut])
+def list_resumes(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(Resume).filter(Resume.user_id == user.id).all()
